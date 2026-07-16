@@ -1,0 +1,26 @@
+[project]
+name = "rl-token-minimize"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Augusto", email = "augusto20060309@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "accelerate>=1.14.0",
+    "datasets>=5.0.0",
+    "peft>=0.19.1",
+    "torch>=2.13.0",
+    "transformers>=5.13.0",
+    "trl>=1.7.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
