@@ -7,15 +7,34 @@ Goal: teach the tool-call format well enough for RL, not maximize SFT quality.
 
 import argparse
 import json
+import math
 from pathlib import Path
 
+import torch
 from datasets import Dataset
+from transformers import TrainerCallback
 from trl import SFTConfig, SFTTrainer
 
 from rl_token_minimize.modeling import MODEL_NAME, load_model_and_tokenizer, lora_config
 from rl_token_minimize.tools import TOOL_SCHEMAS
 
 DATA_DIR = Path(__file__).parent.parent / "data"
+
+
+class MPSMemoryGuard(TrainerCallback):
+    # near the MPS watermark, Metal command buffers fail silently and training
+    # continues with NaN tensors — fail fast and keep the allocator drained
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        for key in ("loss", "grad_norm"):
+            if logs and key in logs and not math.isfinite(float(logs[key])):
+                raise RuntimeError(f"non-finite {key} at step {state.global_step}: {logs}")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        # per-step only: emptying the cache between grad-accum micro-batches
+        # frees buffers still referenced by in-flight MPS work and corrupts
+        # training deterministically
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
 
 def main():
@@ -55,10 +74,17 @@ def main():
             # TRL enables bf16 autocast by default; on MPS that yields NaN grads
             bf16=False,
             fp16=False,
+            # fp32 activations for ~1k-token sequences blow past the 16GB MPS
+            # watermark, corrupting Metal command buffers instead of OOMing
+            gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+            # the default fused AdamW intermittently NaNs on MPS (torch 2.13)
+            optim="adamw_torch",
         ),
         train_dataset=dataset,
         peft_config=lora_config(),
         processing_class=tokenizer,
+        callbacks=[MPSMemoryGuard()],
     )
     trainer.train()
     trainer.save_model(args.output)
