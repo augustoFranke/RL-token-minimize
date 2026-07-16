@@ -15,8 +15,12 @@ def load_model_and_tokenizer(model_name: str = MODEL_NAME, adapter_path: str | N
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # bf16 training on MPS NaN'd adapters in smoke tests; fp32 is the safe default there
-    dtype = torch.float32 if device() == "mps" else torch.bfloat16
+    # bf16 training on MPS NaN'd adapters in smoke tests, and pre-Ampere CUDA
+    # (Kaggle T4/P100) has no native bf16; fp32 is the safe default for both
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        dtype = torch.bfloat16
+    else:
+        dtype = torch.float32
     model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)
     if adapter_path:
         from peft import PeftModel
