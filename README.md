@@ -72,6 +72,14 @@ uv run scripts/evaluate.py --adapter checkpoints/rl_run1/final
 `train_rl.py` logs per-step `mean_reward` / `pass_rate` / `mean_tokens` /
 `mean_thinking_tokens` to `<output>/log.jsonl`.
 
+## Running on Kaggle
+
+Local MPS training on 16GB Apple Silicon proved unreliable (see limitations
+below). `notebooks/kaggle_pipeline.ipynb` runs the full pipeline on a Kaggle
+GPU (T4/P100): clone → install → data prep → baseline eval → SFT → post-SFT
+eval → smoke RL, with the real RL runs left as commented cells. Import it in
+Kaggle via File → Import Notebook → GitHub, enable GPU + Internet.
+
 ## Known limitations / next steps
 
 - **Corpus size**: 121 training tasks is below the 300–500 smoke minimum from
@@ -87,5 +95,12 @@ uv run scripts/evaluate.py --adapter checkpoints/rl_run1/final
 - **MPS precision**: TRL/accelerate silently enables bf16 autocast, which
   produces NaN gradients on MPS — `train_sft.py` forces it off and models load
   in fp32 on MPS. If you move to CUDA, re-enable bf16 for speed.
+- **MPS memory**: fp32 training at ~1k-token sequences runs against the 16GB
+  MPS watermark; instead of a clean OOM, Metal command buffers can fail
+  silently and training continues with NaN tensors ("command buffer exited
+  with error status" in the log). `train_sft.py` mitigates with gradient
+  checkpointing + `torch.mps.empty_cache()` per step, and a callback that
+  aborts on non-finite loss/grad_norm. Keep an eye on the same failure mode in
+  `train_rl.py` (long multi-turn backwards).
 - **Training scripts are smoke-tested for plumbing, not convergence** — do a
   `--limit`/low-`--steps` run first.
