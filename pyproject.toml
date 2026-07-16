@@ -11,7 +11,10 @@ dependencies = [
     "accelerate>=1.14.0",
     "datasets>=5.0.0",
     "peft>=0.19.1",
-    "torch>=2.13.0",
+    # macOS: torch 2.13.0 MPS silently corrupts LoRA training on M1 (NaN
+    # adapters); cap it there but let CUDA hosts (Kaggle/Colab) use their own
+    "torch>=2.8,<2.9; sys_platform == 'darwin'",
+    "torch>=2.8; sys_platform != 'darwin'",
     "transformers>=5.13.0",
     "trl>=1.7.1",
 ]
