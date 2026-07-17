@@ -65,6 +65,7 @@ def main():
     }
     print(json.dumps(summary, indent=2))
     if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         with open(args.out, "w") as f:
             for r in results:
                 f.write(json.dumps(r) + "\n")
