@@ -53,6 +53,10 @@ def main():
     model, tokenizer = load_model_and_tokenizer(MODEL_NAME, adapter_path=args.adapter)
     for name, param in model.named_parameters():
         param.requires_grad = "lora" in name
+    # fp32 activations over multi-thousand-token episodes OOM a 16GB T4
+    # without checkpointing; generate() is unaffected (runs under no_grad)
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.enable_input_require_grads()
     model.train()
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr)
 
