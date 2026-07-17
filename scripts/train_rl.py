@@ -57,7 +57,6 @@ def main():
     # without checkpointing; generate() is unaffected (runs under no_grad)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
-    model.train()
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr)
 
     tasks = [Task(**json.loads(line)) for line in open(DATA_DIR / "tasks_train.jsonl")]
@@ -68,6 +67,9 @@ def main():
     log_file = open(out_dir / "log.jsonl", "a")
 
     for step in range(args.steps):
+        # eval mode for rollouts: keeps KV-cache generation (checkpointing
+        # forces cache off in train mode) and turns off LoRA dropout
+        model.eval()
         rollouts = []
         stats = {"reward": [], "passed": [], "tokens": [], "thinking_tokens": []}
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,6 +100,7 @@ def main():
                     (segments, adv.item()) for (segments, _), adv in zip(group, advantages)
                 )
 
+        model.train()
         optimizer.zero_grad()
         active = [(s, a) for s, a in rollouts if abs(a) > 1e-6 and s]
         for segments, adv in active:

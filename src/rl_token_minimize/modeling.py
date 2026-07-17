@@ -16,8 +16,9 @@ def load_model_and_tokenizer(model_name: str = MODEL_NAME, adapter_path: str | N
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     # bf16 training on MPS NaN'd adapters in smoke tests, and pre-Ampere CUDA
-    # (Kaggle T4/P100) has no native bf16; fp32 is the safe default for both
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+    # (Kaggle T4/P100) has no native bf16; fp32 is the safe default for both.
+    # torch >= 2.10 reports emulated bf16 on pre-Ampere, so require native.
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False):
         dtype = torch.bfloat16
     else:
         dtype = torch.float32
