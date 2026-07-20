@@ -57,7 +57,7 @@ scripts/
 ## Workflow
 
 ```bash
-uv run pytest                        # 59 tests over the deterministic core
+uv run pytest                        # 65 tests over the deterministic core
 uv run scripts/prepare_data.py      # regenerate datasets
 uv run scripts/evaluate.py --limit 5             # baseline (base model)
 uv run scripts/train_sft.py                       # → checkpoints/sft
@@ -75,10 +75,29 @@ uv run scripts/evaluate.py --adapter checkpoints/rl_run1/final
 ## Running on Kaggle
 
 Local MPS training on 16GB Apple Silicon proved unreliable (see limitations
-below). `notebooks/kaggle_pipeline.ipynb` runs the full pipeline on a Kaggle
-GPU (T4/P100): clone → install → data prep → baseline eval → SFT → post-SFT
-eval → smoke RL, with the real RL runs left as commented cells. Import it in
-Kaggle via File → Import Notebook → GitHub, enable GPU + Internet.
+below), so the real runs happen on a Kaggle T4 via
+`notebooks/kaggle_pipeline.ipynb`. Import it with File → Import Notebook →
+GitHub, then enable GPU T4 x2 + Internet.
+
+The notebook covers the whole experiment: data prep → SFT → four baseline evals
+(base/SFT × thinking/no-thinking) → a thinking gate → the three RL runs → a
+held-out eval of every RL checkpoint → analysis (summary table with Wilson
+intervals, paired token comparison over commonly-solved tasks, training curves,
+and a `results_summary.json` dump).
+
+It is **resumable**, because the full pipeline is ~25–30 h of GPU time and a
+Kaggle session is capped at 12 h:
+
+- Every stage is skipped when its artifact already exists (`stage.sh`).
+- RL runs continue from their last 20-step checkpoint if a session is killed.
+- To continue in a new session, attach the previous version's output via
+  Add Data → Your Work; the restore cell copies `checkpoints/` back in.
+
+Run it repeatedly until the final cell prints `PIPELINE COMPLETE`.
+
+Measured on a T4: SFT 13 min, eval (n=40) 4–9 min without thinking, RL 2.24
+min/step without thinking (200 steps = 7.5 h). Thinking roughly doubles the
+per-step cost — the notebook's smoke cell measures it before the full runs.
 
 ## Known limitations / next steps
 
@@ -88,10 +107,18 @@ Kaggle via File → Import Notebook → GitHub, enable GPU + Internet.
 - **SFT loss** is over the full rendered conversation (Qwen3's chat template has
   no `{% generation %}` markers for assistant-only masking). Acceptable for
   format-teaching; revisit if SFT overfits to tool outputs.
-- **Assistant message fidelity**: at inference the episode stores assistant
-  turns as raw text; SFT stores structured `tool_calls`. Both render to the same
-  `<tool_call>` format, but Qwen3's template strips prior-turn `<think>` blocks
-  only in the structured path — worth checking once thinking-mode runs start.
+- **Reasoning accumulates across an episode** (checked against the shipped Qwen3
+  template): the template only drops prior `<think>` blocks for turns before the
+  last *real* user message, and tool results are `role: "tool"` rather than
+  `<tool_response>`-wrapped user turns, so `last_query_index` stays pinned at the
+  task prompt and every turn's reasoning stays in context. This is Qwen3's
+  intended multi-step tool behaviour, but it means thinking episodes have
+  steadily growing prompts — hence the higher per-step cost of runs 2 and 3.
+- **Thinking mode is gated, not assumed**: SFT trains in non-thinking format, so
+  the adapter may skip `<think>` or overrun `max_new_tokens` before emitting a
+  tool call (a local probe on the *base* model did exactly that: 253 reasoning
+  tokens, then no tool call inside a 512-token cap). The notebook checks both
+  failure modes before starting the ~8 h thinking runs.
 - **MPS precision**: TRL/accelerate silently enables bf16 autocast, which
   produces NaN gradients on MPS — `train_sft.py` forces it off and models load
   in fp32 on MPS. If you move to CUDA, re-enable bf16 for speed.
